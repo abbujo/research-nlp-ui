@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <h1>Upload the following files and click on Upload Files Button to proceed to the dashboard</h1>
+    <br/>
+    <form method="post" enctype="multipart/form-data">
+      <label for="dataset">Upload the dataset excel file (.xlsx)</label>
+      <input type="file" name="dataset" id="dataset" />
+      <br /><br />
+      <input type="submit" value="Proceed" name="submit" />
+    </form>
+    <br/>
+    After the download is successful. Please click below to proceed to dashboard.<br/><br/>
+    <form method="post" enctype="multipart/form-data">
+      <input type="text" name="dummy" id="dummy" value="xyz" hidden=true/>
+      <input type="submit" value="View Dashboard" name="submit" />
+    </form>
+  </body>
+</html>
