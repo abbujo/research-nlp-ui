@@ -2,6 +2,9 @@ import spacy
 from spacy.lang.en import English
 from pymongo import MongoClient
 import pandas as pd
+from github import Github
+from github import InputGitTreeElement
+from datetime import datetime
 
 client = MongoClient(
     "mongodb+srv://abbu93:itsmeabbu20@cluster0.bafsc.mongodb.net/TestPyMongo?retryWrites=true&w=majority")
@@ -79,9 +82,6 @@ def upsertMongoDocs(dfdataset, collection):
         subjectDict["_type"] = "Subject"
         subjectDict["_id"] = url+row["entity1"]
         sub = row["relation"]
-        if len(sub.strip()) > 1:
-            sub = getPascalCaseText(sub)
-        subjectDict[sub] = row["entity2"]
         # info:{data1:{},data2:{}}
         # subjectDict["info"] = {sub: dict}
 
@@ -91,13 +91,29 @@ def upsertMongoDocs(dfdataset, collection):
 
         temp = collection.find(query)
 
+        if len(sub.strip()) > 1:
+            sub = getPascalCaseText(sub)
+
+        
+        relatedEntity = url+row["entity2"]
+
         tempInfo = {}
+        tempList = []
+        flagFirstEntityForRelation = True
         for x in temp:
             if "info" in x.keys():
                 tempInfo = x["info"]
+            if sub in x.keys():
+                flagFirstEntityForRelation = False
+                tempList= x[sub]
+
+        if (flagFirstEntityForRelation):
+            tempList = [relatedEntity]
+        else:
+            tempList.append(relatedEntity) 
 
         tempInfo[sub] = dict
-        collection.update_one(query, {"$set": {"info": tempInfo}}, upsert=True)
+        collection.update_one(query, {"$set": {"info": tempInfo, sub:tempList }}, upsert=True)
 
         secondOne = url+row["entity2"]
         #  In case entity 2 is not in the db already
@@ -115,12 +131,100 @@ def tripletExtractionAndUpdates(dfdataset):
         dfdataset.at[index, "relation"] = rowTriple[1]
         dfdataset.at[index, "entity2"] = rowTriple[2]
         if(rowTriple[0] and rowTriple[1] and rowTriple[2]):
-            relationList.append(rowTriple[1])
+            relationList.append(getPascalCaseText(rowTriple[1]))
     return {"dataset": dfdataset, "relations": relationList}
 
 
-def processor(dfdataset):
+def getGitCodeLines():
+    g = Github("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")
+    repo = g.get_user().get_repo('research-visualisation')
+    file_contentJS = repo.get_contents('docs/static/visualisation-code.js')
+    file_contentTTL = repo.get_contents('docs/static/ontology-code.ttl')
+
+    a_fileJS = file_contentJS.decoded_content
+    a_fileTTL = file_contentTTL.decoded_content
+    list_of_linesJS = a_fileJS.decode().splitlines()
+    list_of_linesTTL = a_fileTTL.decode().splitlines()
+    united_linesJS = ""
+    for index, line in enumerate(list_of_linesJS):
+        united_linesJS=united_linesJS+line+"\n"
+
+    united_linesTTL = ""
+    for index, line in enumerate(list_of_linesTTL):
+        united_linesTTL=united_linesTTL+line+"\n"
+
+    return {"ontology": {"codelines": united_linesTTL, "file": a_fileTTL, "file_content": file_contentTTL},
+            "jsFile": {"codelines": united_linesJS, "file": a_fileJS, "file_content": file_contentJS}, "repo": repo}
+
+
+def jsFixer(data, relations):
+    fix_query1_start = "query1 =(parent)=>'{ Subject(filter: { _id:\"' + parent + '\"}){ _id"
+    fix_query1_end = " }}'\n"
+    var_query1 = " VarQuery { _id _type label }"
+    fix_query2_start = "query2 = (topic) => '{ _CONTEXT { _id _type Subject label } Subject(filter:{_id: [\"' + topic.map(function (item) { return '\"' + item + '\"' }) +']}){ _id _type label"
+    fix_query2_end = " }}'\n"
+    var_query2 = " VarQuery { _id }"
+    q1=""
+    q2=""
+    for index, item in enumerate(relations):
+        q1 = q1 + var_query1.replace("VarQuery", relations[index])
+        q2 = q2 + var_query2.replace("VarQuery", relations[index])
+    q1 = fix_query1_start + q1 + fix_query1_end
+    q2 = fix_query2_start + q2 + fix_query2_end
+    lines = q1+q2+data["codelines"]
+    return lines
+
+
+def ttlFixer(data, relations):
+    x = "\ndbo:ItemVal a rdf:Property ; rdfs:comment \"property ItemVal\" ; schema:domainIncludes dbo:Subject ; schema:rangeIncludes dbo:Subject .\n"
+    for index, item in enumerate(relations):
+        relations[index] = x.replace("ItemVal", relations[index])
+    newLines = ""
+    for index, line in enumerate(relations):
+        newLines=newLines+line+"\n"
+    lines = data["codelines"]+newLines
+    return lines
+
+def gitCommit(repo,git_file,all_files, lines):
+    if git_file in all_files:
+        contents = repo.get_contents(git_file)
+        repo.update_file(contents.path, "committing files from heroku server", lines, contents.sha, branch="main")
+        print(git_file + ' UPDATED')
+    else:
+        repo.create_file(git_file, "committing files", lines, branch="main")
+        print(git_file + ' CREATED')
+
+
+def commitCode(repo, jsFile, ttlFile):
+    all_files = []
+    contents = repo.get_contents("")
+    while contents:
+        file_content = contents.pop(0)
+        if file_content.type == "dir":
+            contents.extend(repo.get_contents(file_content.path))
+        else:
+            file = file_content
+            all_files.append(str(file).replace('ContentFile(path="','').replace('")',''))
+
+    # Upload to github
+    git_prefix = 'docs/'
+    git_fileJS = git_prefix + 'visualisation.js'
+    git_fileTTL = git_prefix + 'ontology.ttl'
+    gitCommit(repo,git_fileJS,all_files,jsFile)
+    gitCommit(repo,git_fileTTL,all_files,ttlFile)
+
+
+def codeFixer(data, relations):
+    jsFile = jsFixer(data["jsFile"], relations)
+    ttlFile = ttlFixer(data["ontology"], relations)
+    commitCode(data["repo"], jsFile, ttlFile)
+
+
+if __name__ == "__main__":
+    dfdataset = pd.read_excel("covid_19_dataset.xlsx")
     print(dfdataset)
+
+def processor(dfdataset):
     dfdataset["entity1"] = ""
     dfdataset["relation"] = ""
     dfdataset["entity2"] = ""
@@ -135,8 +239,11 @@ def processor(dfdataset):
     collection = db[collection_name]
     upsertMongoDocs(dfdataset, collection)
 
-    print("Printing#################################")
-    print(dfdataset)
+    # update ontology and the graphql queries - How?
+    #  Commit to github after fetching from there - Done
+    dict = getGitCodeLines()
+    #  relationList
+    codeFixer(dict, relationList)
     # update ontology and the graphql queries
     val = {'files': [dfdataset], 'names': ["Processed_dataset.csv"]}
     return val
