@@ -115,7 +115,7 @@ def upsertMongoDocs(dfdataset, collection):
         tempInfo[sub] = dict
         collection.update_one(query, {"$set": {"info": tempInfo, sub:tempList }}, upsert=True)
 
-        secondOne = url+row["entity2"]
+        secondOne = url+getPascalCaseText(row["entity2"])
         #  In case entity 2 is not in the db already
         query = {"_id": secondOne}
         update = {"$set": {
@@ -136,7 +136,7 @@ def tripletExtractionAndUpdates(dfdataset):
 
 
 def getGitCodeLines():
-    g = Github("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")
+    g = Github("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")
     repo = g.get_user().get_repo('research-visualisation')
     file_contentJS = repo.get_contents('docs/static/visualisation-code.js')
     file_contentTTL = repo.get_contents('docs/static/ontology-code.ttl')
@@ -231,6 +231,7 @@ def processor(dfdataset):
 
     # run triplet extraction and update dfdataset and identify new properties
     info = tripletExtractionAndUpdates(dfdataset)
+    print("Triplets have been successfully created")
     dfdataset = info["dataset"]
     relationList = info["relations"]
 
@@ -238,12 +239,17 @@ def processor(dfdataset):
     collection_name = "test"
     collection = db[collection_name]
     upsertMongoDocs(dfdataset, collection)
-
+    print("Data has been successfully updated to MongoDB")
+    
     # update ontology and the graphql queries - How?
     #  Commit to github after fetching from there - Done
     dict = getGitCodeLines()
+    print("Fetched Code lines from remote GIT")
+    
     #  relationList
     codeFixer(dict, relationList)
+    print("Committed Code lines to remote GIT")
+    
     # update ontology and the graphql queries
     val = {'files': [dfdataset], 'names': ["Processed_dataset.csv"]}
     return val
