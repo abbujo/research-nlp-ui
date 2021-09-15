@@ -67,6 +67,25 @@ def getPascalCaseText(string):
 def getSnakeCaseText(string):
     return string.title().replace(' ', '_')
 
+def queryUpdates(collection,query,sub,relatedEntity):
+    temp = collection.find(query)
+    tempInfo = {}
+    tempList = []
+    flagFirstEntityForRelation = True
+    for x in temp:
+        if "info" in x.keys():
+            tempInfo = x["info"]
+        if sub in x.keys():
+            flagFirstEntityForRelation = False
+            tempList= x[sub]
+
+    if (flagFirstEntityForRelation):
+        tempList = [relatedEntity]
+    else:
+        tempList.append(relatedEntity) 
+    
+    return {"info":tempInfo, "list":tempList}
+
 def upsertMongoDocs(dfdataset, collection):
     url = "https://research-wiki.web.app/data/"
     for index, row in dfdataset.iterrows():
@@ -91,39 +110,32 @@ def upsertMongoDocs(dfdataset, collection):
         update = {"$set": subjectDict}
         collection.update_one(query, update, upsert=True)
 
-        temp = collection.find(query)
-
         if len(sub.strip()) > 1:
             sub = getPascalCaseText(sub)
 
+        relatedEntity = url+getSnakeCaseText(row["entity2"])
         
-        relatedEntity = url+row["entity2"]
-
-        tempInfo = {}
-        tempList = []
-        flagFirstEntityForRelation = True
-        for x in temp:
-            if "info" in x.keys():
-                tempInfo = x["info"]
-            if sub in x.keys():
-                flagFirstEntityForRelation = False
-                tempList= x[sub]
-
-        if (flagFirstEntityForRelation):
-            tempList = [relatedEntity]
-        else:
-            tempList.append(relatedEntity) 
+        queryUpdatesVal = queryUpdates(collection,query,sub,relatedEntity)
+        tempInfo = queryUpdatesVal["info"]
+        tempList = queryUpdatesVal["list"]
 
         tempInfo[sub] = dict
         collection.update_one(query, {"$set": {"info": tempInfo, sub:tempList }}, upsert=True)
 
         secondOne = url+getSnakeCaseText(row["entity2"])
+        secondRelatedEntity = url+getSnakeCaseText(row["entity1"])
         #  In case entity 2 is not in the db already
-        query = {"_id": secondOne}
-        update = {"$set": {
-            "_id": secondOne, "_type": "Subject", "label": row["entity2"]}}
-        collection.update_one(query, update, upsert=True)
+        query2 = {"_id": secondOne}
+        update2 = {"$set": {
+            "_id": secondOne, "_type": "Subject", "label": getSnakeCaseText(row["entity2"])}}
+        collection.update_one(query2, update2, upsert=True)
 
+        queryUpdatesVal = queryUpdates(collection,query2,sub,secondRelatedEntity)
+        tempInfo1 = queryUpdatesVal["info"]
+        tempList1 = queryUpdatesVal["list"]
+
+        tempInfo1[sub] = dict
+        collection.update_one(query2, {"$set": {"info": tempInfo1, sub:tempList1 }}, upsert=True)
 
 def tripletExtractionAndUpdates(dfdataset):
     relationList = []
@@ -133,12 +145,14 @@ def tripletExtractionAndUpdates(dfdataset):
         dfdataset.at[index, "relation"] = rowTriple[1]
         dfdataset.at[index, "entity2"] = rowTriple[2]
         if(rowTriple[0] and rowTriple[1] and rowTriple[2]):
-            relationList.append(getPascalCaseText(rowTriple[1]))
+            rel = getPascalCaseText(rowTriple[1])
+            if rel not in relationList:
+                relationList.append(getPascalCaseText(rowTriple[1]))
     return {"dataset": dfdataset, "relations": relationList}
 
 
 def getGitCodeLines():
-    g = Github("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")
+    g = Github("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")
     repo = g.get_user().get_repo('research-visualisation')
     file_contentJS = repo.get_contents('docs/static/visualisation-code.js')
     file_contentTTL = repo.get_contents('docs/static/ontology-code.ttl')
@@ -236,6 +250,7 @@ def processor(dfdataset):
     print("Triplets have been successfully created")
     dfdataset = info["dataset"]
     relationList = info["relations"]
+    print(relationList)
 
     # prepare and mongo documents
     collection_name = "test"

@@ -22,6 +22,7 @@ def upload():
     if request.method == 'POST':
         if request.files:
             dfdataset = pd.read_excel(request.files.get('dataset'))
+            print("Read data file named: ",request.files.get('dataset').filename)
             if not dfdataset.empty:
                 info = NLP.processor(dfdataset)
                 zipped_file = zipFiles(info['files'],info['names'])
