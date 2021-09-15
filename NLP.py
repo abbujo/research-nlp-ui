@@ -64,6 +64,8 @@ def processSentence(sentence):
 def getPascalCaseText(string):
     return string.title().replace(' ', '')
 
+def getSnakeCaseText(string):
+    return string.title().replace(' ', '_')
 
 def upsertMongoDocs(dfdataset, collection):
     url = "https://research-wiki.web.app/data/"
@@ -78,9 +80,9 @@ def upsertMongoDocs(dfdataset, collection):
         dict["source_title"] = row["source_title"]
         dict["published_year"] = row["published_year"]
         dict["read_by"] = row["read_by"]
-        subjectDict["label"] = row["entity1"]
+        subjectDict["label"] = getSnakeCaseText(row["entity1"])
         subjectDict["_type"] = "Subject"
-        subjectDict["_id"] = url+row["entity1"]
+        subjectDict["_id"] = url+getSnakeCaseText(row["entity1"])
         sub = row["relation"]
         # info:{data1:{},data2:{}}
         # subjectDict["info"] = {sub: dict}
@@ -115,7 +117,7 @@ def upsertMongoDocs(dfdataset, collection):
         tempInfo[sub] = dict
         collection.update_one(query, {"$set": {"info": tempInfo, sub:tempList }}, upsert=True)
 
-        secondOne = url+getPascalCaseText(row["entity2"])
+        secondOne = url+getSnakeCaseText(row["entity2"])
         #  In case entity 2 is not in the db already
         query = {"_id": secondOne}
         update = {"$set": {
